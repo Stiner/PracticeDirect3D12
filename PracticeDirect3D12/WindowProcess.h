@@ -1,4 +1,4 @@
-// Practice D3D11
+// Practice D3D12
 
 #pragma once
 

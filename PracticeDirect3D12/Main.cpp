@@ -1,4 +1,4 @@
-﻿// Practice D3D11
+﻿// Practice D3D12
 
 #include "PracticeD3D12.h"
 
@@ -7,5 +7,9 @@ int APIENTRY wWinMain(_In_     HINSTANCE hInstance,
                       _In_     LPWSTR    lpCmdLine,
                       _In_     int       nCmdShow)
 {
-    return MyApp().Run(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
+    MyApp* pApp = new MyApp();
+    int r = pApp->Run(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
+    delete pApp;
+
+    return r;
 }

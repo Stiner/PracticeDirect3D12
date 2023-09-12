@@ -10,9 +10,12 @@
 #include <windows.h>
 // C 런타임 헤더 파일입니다.
 #include <stdlib.h>
+#include <stdio.h>
 #include <malloc.h>
 #include <memory.h>
 #include <tchar.h>
 // D3D 헤더 파일
 #include <d3d12.h>
 #include <dxgi1_6.h>
+
+#include "DebugUtil.h"
