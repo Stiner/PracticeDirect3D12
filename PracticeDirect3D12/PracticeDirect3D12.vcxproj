@@ -138,6 +138,7 @@
     <ClInclude Include="framework.h" />
     <ClInclude Include="PracticeD3D12.h" />
     <ClInclude Include="Resource.h" />
+    <ClInclude Include="SuperSimpleTime.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="WindowProcess.h" />
   </ItemGroup>
@@ -145,6 +146,7 @@
     <ClCompile Include="DebugUtil.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="PracticeD3D12.cpp" />
+    <ClCompile Include="SuperSimpleTime.cpp" />
     <ClCompile Include="WindowProcess.cpp" />
   </ItemGroup>
   <ItemGroup>

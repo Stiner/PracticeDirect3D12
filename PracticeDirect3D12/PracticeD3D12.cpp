@@ -3,32 +3,26 @@
 #include "resource.h"
 #include "WindowProcess.h"
 #include "PracticeD3D12.h"
+#include "SuperSimpleTime.h"
 
-int MyApp::Run(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
+HRESULT MyApp::Run(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
 {
-    if (FAILED(InitWithCmd(lpCmdLine)))
+    HRESULT hr(0);
+
+    if (FAILED(hr = InitWithCmd(lpCmdLine)))
         return E_FAIL;
 
-    if (FAILED(InitWindow(hInstance, nCmdShow)))
+    if (FAILED(hr = InitWindow(hInstance, nCmdShow)))
         return E_FAIL;
 
-    if (FAILED(InitDevice()))
-    {
-        CleanupApp();
-        return E_FAIL;
-    }
+    if (FAILED(hr = InitDevice()))
+        goto END;
 
-    if (FAILED(InitShader()))
-    {
-        CleanupApp();
-        return E_FAIL;
-    }
+    if (FAILED(hr = InitShader()))
+        goto END;
 
     if (FAILED(InitGeometry()))
-    {
-        CleanupApp();
-        return E_FAIL;
-    }
+        goto END;
 
     MSG msg;
     ZeroMemory(&msg, sizeof(MSG));
@@ -41,20 +35,25 @@ int MyApp::Run(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, i
         }
         else
         {
-            InputProcess();
-            UpdateProcess();
-            RenderProcess();
+            UpdateProcess(SuperSimpleTime::GetDeltaTime());
+
+            if (FAILED(hr = RenderProcess()))
+                goto END;
         }
     }
 
+    hr = static_cast<HRESULT>(msg.wParam);
+
+END:
     CleanupApp();
 
-    return (int)msg.wParam;
+    return hr;
 }
 
 HRESULT MyApp::InitWithCmd(LPWSTR lpCmdLine)
 {
     DebugConsole::Initialize();
+    SuperSimpleTime::Initialize();
 
     return S_OK;
 }
@@ -237,28 +236,122 @@ END:
 
 HRESULT MyApp::InitShader()
 {
-    HRESULT hr = E_FAIL;
+    HRESULT hr(0);
 
-    return S_OK;
+    hr = _pD3DDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, _pCommandAllocator, nullptr, IID_PPV_ARGS(&_pCommandList));
+    if (FAILED(hr))
+        return E_FAIL;
+
+    //...
+
+    hr = _pCommandList->Close();
+    if (FAILED(hr))
+        return E_FAIL;
+
+    //...
+
+    hr = _pD3DDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_pFence));
+    _fenceValue = 1;
+
+    _handleFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!_handleFenceEvent)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    return hr;
 }
+
+static ULONGLONG t = 0;
 
 HRESULT MyApp::InitGeometry()
 {
-    HRESULT hr = E_FAIL;
+    HRESULT hr(0);
 
-    return S_OK;
+    t = GetTickCount64();
+
+    return hr;
 }
 
-void MyApp::InputProcess()
+void MyApp::UpdateProcess(double delta)
 {
+    //DebugConsole::Print(TEXT("E:%f\n"), delta);
+
+    SuperSimpleTime::Update();
 }
 
-void MyApp::UpdateProcess()
+HRESULT MyApp::RenderProcess()
 {
-}
+    HRESULT hr(0);
 
-void MyApp::RenderProcess()
-{
+    {
+        if (FAILED(hr = _pCommandAllocator->Reset()))
+            return E_FAIL;
+
+        if (FAILED(hr = _pCommandList->Reset(_pCommandAllocator, _pPipelineState)))
+            return E_FAIL;
+
+        {
+            D3D12_RESOURCE_BARRIER barrier({});
+            barrier.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            barrier.Transition.pResource   = _pArrRenderTargets[_currentBackBufferIndex];
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+            barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+            _pCommandList->ResourceBarrier(1, &barrier);
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE handleRTVDescriptor = {};
+        D3D12_CPU_DESCRIPTOR_HANDLE base = _pRTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+        handleRTVDescriptor.ptr = SIZE_T(INT64(base.ptr) + INT64(_currentBackBufferIndex) * _RTVDescriptorSize);
+
+        const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+        _pCommandList->ClearRenderTargetView(handleRTVDescriptor, clearColor, 0, nullptr);
+
+        {
+            D3D12_RESOURCE_BARRIER barrier({});
+            barrier.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            barrier.Transition.pResource   = _pArrRenderTargets[_currentBackBufferIndex];
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+            _pCommandList->ResourceBarrier(1, &barrier);
+        }
+
+        if (FAILED(hr = _pCommandList->Close()))
+            return E_FAIL;
+    }
+
+    ID3D12CommandList* pArrCommandList[] = { _pCommandList };
+    _pCommandQueue->ExecuteCommandLists(_countof(pArrCommandList), pArrCommandList);
+
+    hr = _pSwapChain->Present(1, 0);
+    if (FAILED(hr))
+        return E_FAIL;
+
+    {
+        const UINT64 fence = _fenceValue;
+        if (FAILED(hr = _pCommandQueue->Signal(_pFence, fence)))
+            return E_FAIL;
+
+        _fenceValue++;
+
+        if (_pFence->GetCompletedValue() < fence)
+        {
+            if (FAILED(hr = _pFence->SetEventOnCompletion(fence, _handleFenceEvent)))
+                return E_FAIL;
+
+            WaitForSingleObject(_handleFenceEvent, INFINITE);
+        }
+
+        _currentBackBufferIndex = _pSwapChain->GetCurrentBackBufferIndex();
+    }
+
+    return hr;
 }
 
 void MyApp::CleanupApp()
@@ -266,6 +359,8 @@ void MyApp::CleanupApp()
     _hInstance = NULL;
     _hWnd = NULL;
 
+    SAFE_RELEASE(_pFence);
+    SAFE_RELEASE(_pCommandList);
     SAFE_RELEASE(_pCommandAllocator);
     SAFE_RELEASE(_pRTVDescriptorHeap);
     SAFE_RELEASE(_pCommandQueue);
